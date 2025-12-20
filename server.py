@@ -9,9 +9,13 @@ s = socket.socket()
 # localhost would mean we can only listen from this computer
 PORT = 6767
 SERVER = socket.gethostbyname(socket.gethostname())
+HEADER = 64     #64 byte header for each message
+ADDRESS = (SERVER, PORT)
+FORMAT = 'utf-8'
+DISCONNECT_MESSAGE = "!DISCONNECT"
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind(('', PORT))
+s.bind(ADDRESS)
 
 
 print('server bound at ', PORT)
@@ -24,18 +28,32 @@ print('server listening')
 # accepted connection is a new seperate socket
 # a forever loop until we interrupt it or 
 # an error occurs 
-while True: 
 
-# Establish connection with client. 
-  client, address = s.accept()     
-  print('Got connection from', address )
+#Rund concurrently for each client
+def handle_client(connection, address):
+    connection.send('Thank you for connecting'.encode())
+    connected = True
+    while connected:
+        message_length = connection.recv(HEADER).decode(FORMAT)
+        if message_length:
+            message_length = int(message_length)
+            message = connection.recv(message_length).decode(FORMAT)
+            if message == DISCONNECT_MESSAGE:
+                connected = False
+            print(address, ": ", message)
+    connection.close()
+        
 
-  # send a thank you message to the client. encoding to send byte type. 
-  client.send('Thank you for connecting'.encode()) 
 
-  # Close the connection with the client 
-  client.close()
-  
-  # Breaking once connection closed
-  break
+def start():
+    while True: 
+        #Establish connection with client. 
+        connection, address = s.accept()     
+        thread = threading.Thread(target = handle_client, args = (connection,address))
+        thread.start()
+        print("Active connections: ", (threading.activeCount() -1))
+        print('Got connection from', address )
 
+        # send a thank you message to the client. encoding to send byte type. 
+
+start()
