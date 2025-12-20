@@ -14,7 +14,8 @@ ADDRESS = (SERVER, PORT)
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(ADDRESS)
 
 
@@ -29,9 +30,14 @@ print('server listening')
 # a forever loop until we interrupt it or 
 # an error occurs 
 
+client_dict = {}
+
+
+
 #Rund concurrently for each client
 def handle_client(connection, address):
-    connection.send('Thank you for connecting'.encode())
+    welcome_message = "Thank you for connecting!"
+    send(welcome_message, (connection))
     connected = True
     while connected:
         message_length = connection.recv(HEADER).decode(FORMAT)
@@ -43,7 +49,17 @@ def handle_client(connection, address):
             print(address, ": ", message)
     connection.close()
         
+def send(message, *targets):
+    for target in targets:
+        message = message.encode(FORMAT)
+        # Get message length for header
+        message_length = len(message)
+        send_length = str(message_length).encode(FORMAT)
 
+        #Pad to fit 64 byte header
+        send_length += b' ' * (HEADER - len(send_length))
+        target.send(send_length)
+        target.send(message)
 
 def start():
     while True: 
