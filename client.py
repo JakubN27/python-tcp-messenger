@@ -4,22 +4,18 @@ import threading
 
 
 HEADER = 64
-PORT = 6767
+PORT = int(sys.argv[3])
+HOSTNAME = sys.argv[2]
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
-SERVER = socket.gethostbyname(socket.gethostname())
-ADDRESS = (SERVER, PORT)
+ADDRESS = (HOSTNAME, PORT)
 NICKNAME = sys.argv[1]
 
 
-print(NICKNAME)
-#Initialise client
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect(ADDRESS)
-
-def send():
+def send(client):
     while True:
         message = input()
+        print('sending message: ', message)
         message = message.encode(FORMAT)
         # Get message length for header
         message_length = len(message)
@@ -30,7 +26,7 @@ def send():
         client.send(send_length)
         client.send(message)
 
-def recieve():
+def recieve(client):
     while True:
         message_length = client.recv(HEADER).decode(FORMAT)
         if message_length:
@@ -38,12 +34,33 @@ def recieve():
             message = client.recv(message_length).decode(FORMAT)
             if message == DISCONNECT_MESSAGE:
                 connected = False
-            print("Server: ", message)
+            print(": ", message)
         #print('an error occured (recieve)')
 
-recieve_thread = threading.Thread(target=recieve)
-recieve_thread.start()
-send_thread = threading.Thread(target=send)
-send_thread.start()
+def start():
+    #Initialise client
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDRESS)
+
+    recieve_thread = threading.Thread(target=recieve, args = (client,))
+    recieve_thread.start()
+    # Get message length for header
+    message = NICKNAME
+    message = message.encode(FORMAT)
+    message_length = len(message)
+    send_length = str(message_length).encode(FORMAT)
+
+    #Pad to fit 64 byte header
+    send_length += b' ' * (HEADER - len(send_length))
+    client.send(send_length)
+    client.send(message)
+
+
+    send_thread = threading.Thread(target=send, args = (client,))
+    send_thread.start()
+
+start()
+
+
 
 

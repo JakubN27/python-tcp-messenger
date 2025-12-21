@@ -14,6 +14,10 @@ ADDRESS = (SERVER, PORT)
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
 
+client_addresses = {}
+client_nicknames = {}
+groups = {}
+
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(ADDRESS)
@@ -25,19 +29,26 @@ print('server bound at ', PORT)
 s.listen(9)
 print('server listening')
 
-#accept() lets it recieve conenections 
-# accepted connection is a new seperate socket
-# a forever loop until we interrupt it or 
-# an error occurs 
-
-client_dict = {}
-
 
 
 #Rund concurrently for each client
 def handle_client(connection, address):
-    welcome_message = "Thank you for connecting!"
+    # Set client nickname before entering loop
+    nick_message_length = connection.recv(HEADER).decode(FORMAT)
+    if nick_message_length:
+        nick_message_length = int(nick_message_length)
+        nick_message = connection.recv(nick_message_length).decode(FORMAT)
+        print(f'{nick_message} has joined the room!')
+
+    #Update dictionaries
+    client_addresses[connection] = address
+    client_nicknames[connection] = nick_message
+
+    #Send welcome message to client upon connecting
+    welcome_message = "thank you for connecting!"
     send(welcome_message, (connection))
+
+    #Listen for messages fro client
     connected = True
     while connected:
         message_length = connection.recv(HEADER).decode(FORMAT)
@@ -46,17 +57,17 @@ def handle_client(connection, address):
             message = connection.recv(message_length).decode(FORMAT)
             if message == DISCONNECT_MESSAGE:
                 connected = False
-            print(address, ": ", message)
+            print(client_nicknames[connection], ": ", message)
     connection.close()
         
 def send(message, *targets):
     for target in targets:
         message = message.encode(FORMAT)
-        # Get message length for header
+        # get message length for header
         message_length = len(message)
         send_length = str(message_length).encode(FORMAT)
 
-        #Pad to fit 64 byte header
+        #pad to fit 64 byte header
         send_length += b' ' * (HEADER - len(send_length))
         target.send(send_length)
         target.send(message)
@@ -64,7 +75,7 @@ def send(message, *targets):
 def start():
     while True: 
         #Establish connection with client. 
-        connection, address = s.accept()     
+        connection, address = s.accept()    
         thread = threading.Thread(target = handle_client, args = (connection,address))
         thread.start()
         print("Active connections: ", (threading.activeCount() -1))
