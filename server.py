@@ -1,5 +1,6 @@
 import socket
 import threading
+import sys
 #Using threading since we are handling multiple clients
 
 s = socket.socket()
@@ -7,7 +8,7 @@ s = socket.socket()
 # Bind port to socket
 # Empty string for IP makes server listen for requests from any computer
 # localhost would mean we can only listen from this computer
-PORT = 6767
+PORT = int(sys.argv[1])
 SERVER = socket.gethostbyname(socket.gethostname())
 HEADER = 64     #64 byte header for each message
 ADDRESS = (SERVER, PORT)
@@ -55,10 +56,50 @@ def handle_client(connection, address):
         if message_length:
             message_length = int(message_length)
             message = connection.recv(message_length).decode(FORMAT)
-            if message == DISCONNECT_MESSAGE:
-                connected = False
-            print(client_nicknames[connection], ": ", message)
+            if message.startswith('!'):
+                commands(connection, message)
+            else:
+                print(client_nicknames[connection], ": ", message)
     connection.close()
+
+def commands(connection, message):
+    message_list = message.split()
+    command = message_list[0]
+    if len(message_list) > 1:
+        args = message_list[1:]
+    print(command)
+    print(args)
+    if command == '!disconnect':
+        print(f'{client_nicknames[connection]} has disconnected.')
+        connection.close()
+    #Expecting !joingroup <group>
+    elif command == '!joingroup':
+        if args and len(args) != 1:
+            send(f'Wrong number of arguments for {command}, expecting 1', (connection))
+        else:
+            try:
+                if args[0] in groups:
+                    groups[args[0]].append(connection)
+                else:
+                    groups[args[0]] = [connection]
+                send(f'You have joined the group {args[0]}', (connection))
+            except:
+                send('Failed to join group: ', args[0])
+        print(groups)
+    #Expecting !leavegroup <group>
+    elif command == '!leavegroup':
+        if args and len(args) != 1:
+            send(f'Wrong number of arguments for {command}, expecting 1', (connection))
+        else:
+            if args[0] in groups:
+                groups[args[0]].remove(connection)
+                send(f'You have left the group {args[0]}', (connection))
+            else:
+                send(f'You are not part of the group {args[0]}', (connection))
+        print(groups)
+
+    elif command == '!switchmode':
+        pass 
         
 def send(message, *targets):
     for target in targets:
