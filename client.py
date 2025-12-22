@@ -13,9 +13,13 @@ NICKNAME = sys.argv[1]
 
 
 def send(client):
-    while True:
+    while not disconnected.is_set():
         message = input()
-        print('sending message: ', message)
+        if not message.startswith('!'):
+            print('sending message: ', message)
+        #Handle disconnect directly due to race cases
+        elif message == "!disconnect":
+            disconnected.set()
         message = message.encode(FORMAT)
         # Get message length for header
         message_length = len(message)
@@ -25,41 +29,46 @@ def send(client):
         send_length += b' ' * (HEADER - len(send_length))
         client.send(send_length)
         client.send(message)
+        
+       
+            
 
 def recieve(client):
-    while True:
+    while not disconnected.is_set():
         message_length = client.recv(HEADER).decode(FORMAT)
         if message_length:
             message_length = int(message_length)
             message = client.recv(message_length).decode(FORMAT)
             if message == DISCONNECT_MESSAGE:
-                connected = False
-            print(": ", message)
+                disconnected.set()
+            print("SERVER: ", message)
+        else:
+            print("You have disconnected from the server.")
+            disconnected.set()
         #print('an error occured (recieve)')
 
-def start():
-    #Initialise client
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(ADDRESS)
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(ADDRESS)
+disconnected = threading.Event()
 
-    recieve_thread = threading.Thread(target=recieve, args = (client,))
-    recieve_thread.start()
-    # Get message length for header
-    message = NICKNAME
-    message = message.encode(FORMAT)
-    message_length = len(message)
-    send_length = str(message_length).encode(FORMAT)
+recieve_thread = threading.Thread(target=recieve, args = (client,))
+recieve_thread.start()
+# Get message length for header
+message = NICKNAME
+message = message.encode(FORMAT)
+message_length = len(message)
+send_length = str(message_length).encode(FORMAT)
 
-    #Pad to fit 64 byte header
-    send_length += b' ' * (HEADER - len(send_length))
-    client.send(send_length)
-    client.send(message)
+#Pad to fit 64 byte header
+send_length += b' ' * (HEADER - len(send_length))
+client.send(send_length)
+client.send(message)
 
 
-    send_thread = threading.Thread(target=send, args = (client,))
-    send_thread.start()
+send_thread = threading.Thread(target=send, args = (client,))
+send_thread.start()
 
-start()
+
 
 
 

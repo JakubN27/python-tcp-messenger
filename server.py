@@ -3,13 +3,12 @@ import threading
 import sys
 #Using threading since we are handling multiple clients
 
-s = socket.socket()
 
 # Bind port to socket
 # Empty string for IP makes server listen for requests from any computer
 # localhost would mean we can only listen from this computer
 PORT = int(sys.argv[1])
-SERVER = socket.gethostbyname(socket.gethostname())
+SERVER = ''
 HEADER = 64     #64 byte header for each message
 ADDRESS = (SERVER, PORT)
 FORMAT = 'utf-8'
@@ -57,9 +56,17 @@ def handle_client(connection, address):
             message_length = int(message_length)
             message = connection.recv(message_length).decode(FORMAT)
             if message.startswith('!'):
-                commands(connection, message)
+                code = commands(connection, message)
+                #If disconnect flag raised
+                if code == -1:
+                    connected = False
             else:
                 print(client_nicknames[connection], ": ", message)
+        #If forced diconnect, we will recieve empty length
+        else:
+            connected = False
+            print(f'{client_nicknames[connection]} has disconnected unexpectedly.')
+
     connection.close()
 
 def commands(connection, message):
@@ -67,11 +74,10 @@ def commands(connection, message):
     command = message_list[0]
     if len(message_list) > 1:
         args = message_list[1:]
-    print(command)
-    print(args)
+    #If user chooses to disconenct we return a flag
     if command == '!disconnect':
         print(f'{client_nicknames[connection]} has disconnected.')
-        connection.close()
+        return -1
     #Expecting !joingroup <group>
     elif command == '!joingroup':
         if args and len(args) != 1:
@@ -99,7 +105,9 @@ def commands(connection, message):
         print(groups)
 
     elif command == '!switchmode':
-        pass 
+        pass
+    else:
+        send("invalid command", (connection))
         
 def send(message, *targets):
     for target in targets:
