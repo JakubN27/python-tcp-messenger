@@ -81,7 +81,7 @@ def handle_client(connection, address):
                 elif client_modes[connection][0] == 'group':
                     send(message, *groups[client_modes[connection][1]])
                 elif client_modes[connection][0] == 'whisper':
-                    send(message, (groups[client_modes[connection][1]]))
+                    send(message, (nick_to_client[client_modes[connection][1]]))
 
 
                 print(nick, ": ", message, client_modes[connection])
@@ -126,6 +126,9 @@ def commands(connection, message):
         else:
             if args[0] in groups:
                 groups[args[0]].remove(connection)
+                # cleanup if group is empty
+                if not groups[args[0]]:
+                    del groups[args[0]]
                 send(f'You have left the group {args[0]}', (connection))
             else:
                 send(f'You are not part of the group {args[0]}', (connection))
