@@ -178,27 +178,50 @@ def commands(connection, message):
     elif command == '!download':
         shared_folder = os.environ.get('SERVER_SHARED_FILES', 'SharedFiles')
         if not args or len(args) < 1:
-            send('SERVER: Usage: !download <filename>', (connection))
+            send('SERVER: Usage: !download <filename> [udp]', (connection))
         else:
             filename = args[0]
+            protocol = args[1].lower() if len(args) > 1 else 'tcp'
             filepath = os.path.join(shared_folder, filename)
             if not os.path.isfile(filepath):
                 send('SERVER: File not found.', (connection))
-            else:
+            elif protocol == 'tcp':
                 try:
                     filesize = os.path.getsize(filepath)
                     send(f'SERVER: Sending {filename} ({filesize} bytes).', (connection))
                     with open(filepath, 'rb') as f:
-                        # Send file size first
-                        connection.send(str(filesize).encode(FORMAT).ljust(HEADER))
                         # Send file data in chunks
+                        bytes_sent = 0
                         while True:
                             data = f.read(1024)
                             if not data:
                                 break
                             connection.send(data)
+                            bytes_sent += len(data)
                 except Exception as e:
                     send('SERVER: Error sending file.', (connection))
+            elif protocol == 'udp':
+                try:
+                    filesize = os.path.getsize(filepath)
+                    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    udp_sock.bind(('', 0)) # Bind to any free port
+                    udp_port = udp_sock.getsockname()[1]
+                    send(f'SERVER: UDPPORT {udp_port} {filename} {filesize}', (connection))
+                    client_ip, _ = client_addresses[connection]
+                    with open(filepath, 'rb') as f:
+                        bytes_sent = 0
+                        while True:
+                            data = f.read(1024)
+                            if not data:
+                                break
+                            udp_sock.sendto(data, (client_ip, udp_port))
+                            bytes_sent += len(data)
+                    udp_sock.close()
+                except Exception as e:
+                    send('SERVER: Error sending file via UDP.', (connection))
+            else:
+                send('SERVER: Invalid protocol. Use tcp or udp.', (connection))
     else:
         send("SERVER: invalid command", (connection))
             
