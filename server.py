@@ -78,11 +78,16 @@ def handle_client(connection, address):
                 #Server resends client message to target depending on mode
                 if client_modes[connection] == 'broadcast':
                     print(client_addresses.values())
-                    send(f'{nick}: {message}', *client_addresses)
+                    targets = [c for c in client_addresses if c != connection]
+                    send(f'{nick}: {message}', *targets)
                 elif client_modes[connection][0] == 'group':
-                    send(message, *groups[client_modes[connection][1]])
+                    group_name = client_modes[connection][1]
+                    targets = [c for c in groups[group_name] if c != connection]
+                    send(f'{nick}: {message}', *targets)
                 elif client_modes[connection][0] == 'whisper':
-                    send(message, (nick_to_client[client_modes[connection][1]]))
+                    target_client = nick_to_client[client_modes[connection][1]]
+                    if target_client != connection:
+                        send(f'{nick}: {message}', (target_client))
 
 
                 print(nick, ": ", message, client_modes[connection])
