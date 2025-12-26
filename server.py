@@ -5,7 +5,7 @@ import sys
 
 
 # Bind port to socket
-# Empty string for IP makes server listen for requests from any computer
+# Empty string for SERVER makes server listen for requests from any computer
 # localhost would mean we can only listen from this computer
 PORT = int(sys.argv[1])
 SERVER = ''
@@ -14,9 +14,17 @@ ADDRESS = (SERVER, PORT)
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
 
+#Client : address
 client_addresses = {}
+#Client : nickname
 client_nicknames = {}
+# nickanme : client
+nick_to_client = {}
+#groupname : [client1, clien2, ...]
 groups = {}
+#Client : messaging mode
+client_modes = {}
+
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -43,14 +51,19 @@ def handle_client(connection, address):
     #Update dictionaries
     client_addresses[connection] = address
     client_nicknames[connection] = nick_message
+    nick_to_client[nick_message] = connection
 
     #Send welcome message to client upon connecting
     welcome_message = "thank you for connecting!"
     send(welcome_message, (connection))
 
+    #Default mode is broadcast
+    client_modes[connection] = 'broadcast'
+
     #Listen for messages fro client
     connected = True
     while connected:
+        nick = client_nicknames[connection]
         message_length = connection.recv(HEADER).decode(FORMAT)
         if message_length:
             message_length = int(message_length)
@@ -61,10 +74,24 @@ def handle_client(connection, address):
                 if code == -1:
                     connected = False
             else:
-                print(client_nicknames[connection], ": ", message)
+                #Server resends client message to target depending on mode
+                if client_modes[connection] == 'broadcast':
+                    print(client_addresses.values())
+                    send(message, *client_addresses)
+                elif client_modes[connection][0] == 'group':
+                    send(message, *groups[client_modes[connection][1]])
+                elif client_modes[connection][0] == 'whisper':
+                    send(message, (groups[client_modes[connection][1]]))
+
+
+                print(nick, ": ", message, client_modes[connection])
         #If forced diconnect, we will recieve empty length
         else:
+            del nick_to_client[nick]
+            del client_nicknames[connection]
+
             connected = False
+            
             print(f'{client_nicknames[connection]} has disconnected unexpectedly.')
 
     connection.close()
@@ -104,18 +131,39 @@ def commands(connection, message):
                 send(f'You are not part of the group {args[0]}', (connection))
         print(groups)
 
+    
     elif command == '!switchmode':
-        pass
+        # Expecting !switchmode broadcast
+        if args and len(args) == 1 and args[0] == 'broadcast':
+            client_modes[connection] = 'broadcast'
+        # Expecting !switchmode group <groupname>
+        elif args and len(args) == 2 and args[0] == 'group':
+            group_name = args[1]
+            if group_name not in groups:
+                send(f'Group {group_name} does not exist!', (connection))
+            elif connection not in groups[group_name]:
+                send(f'You are not part of the group {group_name}', (connection))
+            else:
+                client_modes[connection] = ('group', group_name)
+        # Expecting !switchmode whisper <user>
+        elif args and len(args) == 2 and args[0] == 'whisper':
+            target_user = args[1]
+            if target_user not in nick_to_client:
+                send(f'User {target_user} does not exist!', (connection))
+            else:
+                client_modes[connection] = ('whisper', target_user)
+        else:
+            send(f'Wrong usage of {command}', (connection))
+
     else:
         send("invalid command", (connection))
-        
+            
 def send(message, *targets):
+    message = message.encode(FORMAT)
+    # get message length for header
+    message_length = len(message)
+    send_length = str(message_length).encode(FORMAT)
     for target in targets:
-        message = message.encode(FORMAT)
-        # get message length for header
-        message_length = len(message)
-        send_length = str(message_length).encode(FORMAT)
-
         #pad to fit 64 byte header
         send_length += b' ' * (HEADER - len(send_length))
         target.send(send_length)
