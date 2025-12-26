@@ -1,6 +1,7 @@
 import socket
 import threading
 import sys
+import os
 #Using threading since we are handling multiple clients
 
 
@@ -54,7 +55,7 @@ def handle_client(connection, address):
     nick_to_client[nick_message] = connection
 
     #Send welcome message to client upon connecting
-    welcome_message = "thank you for connecting!"
+    welcome_message = "SERVER: thank you for connecting!"
     send(welcome_message, (connection))
 
     #Default mode is broadcast
@@ -77,7 +78,7 @@ def handle_client(connection, address):
                 #Server resends client message to target depending on mode
                 if client_modes[connection] == 'broadcast':
                     print(client_addresses.values())
-                    send(message, *client_addresses)
+                    send(f'{nick}: {message}', *client_addresses)
                 elif client_modes[connection][0] == 'group':
                     send(message, *groups[client_modes[connection][1]])
                 elif client_modes[connection][0] == 'whisper':
@@ -104,37 +105,37 @@ def commands(connection, message):
     #If user chooses to disconenct we return a flag
     if command == '!disconnect':
         print(f'{client_nicknames[connection]} has disconnected.')
+        send('SERVER: You have been disconnected.', (connection))
         return -1
     #Expecting !joingroup <group>
     elif command == '!joingroup':
         if args and len(args) != 1:
-            send(f'Wrong number of arguments for {command}, expecting 1', (connection))
+            send(f'SERVER: Wrong number of arguments for {command}, expecting 1', (connection))
         else:
             try:
                 if args[0] in groups:
                     groups[args[0]].append(connection)
                 else:
                     groups[args[0]] = [connection]
-                send(f'You have joined the group {args[0]}', (connection))
+                send(f'SERVER: You have joined the group {args[0]}', (connection))
             except:
-                send('Failed to join group: ', args[0])
+                send('SERVER: Failed to join group: ' + args[0], (connection))
         print(groups)
     #Expecting !leavegroup <group>
     elif command == '!leavegroup':
         if args and len(args) != 1:
-            send(f'Wrong number of arguments for {command}, expecting 1', (connection))
+            send(f'SERVER: Wrong number of arguments for {command}, expecting 1', (connection))
         else:
             if args[0] in groups:
                 groups[args[0]].remove(connection)
                 # cleanup if group is empty
                 if not groups[args[0]]:
                     del groups[args[0]]
-                send(f'You have left the group {args[0]}', (connection))
+                send(f'SERVER: You have left the group {args[0]}', (connection))
             else:
-                send(f'You are not part of the group {args[0]}', (connection))
+                send(f'SERVER: You are not part of the group {args[0]}', (connection))
         print(groups)
-
-    
+    #Expecting !switchmode <mode>
     elif command == '!switchmode':
         # Expecting !switchmode broadcast
         if args and len(args) == 1 and args[0] == 'broadcast':
@@ -156,10 +157,21 @@ def commands(connection, message):
             else:
                 client_modes[connection] = ('whisper', target_user)
         else:
-            send(f'Wrong usage of {command}', (connection))
-
+            send(f'SERVER: Wrong usage of {command}', (connection))
+    elif command == '!sharedfiles':
+        shared_folder = os.environ.get('SERVER_SHARED_FILES', 'SharedFiles')
+        try:
+            files = os.listdir(shared_folder)
+            file_count = len(files)
+            if file_count == 0:
+                send('SERVER: Access granted. No files available in the shared folder.', (connection))
+            else:
+                send(f'SERVER: Access granted. {file_count} files in folder.', (connection))
+                send('SERVER: Files: ' + ', '.join(files), (connection))
+        except Exception as e:
+            send('SERVER: Failed to access shared folder.', (connection))
     else:
-        send("invalid command", (connection))
+        send("SERVER: invalid command", (connection))
             
 def send(message, *targets):
     message = message.encode(FORMAT)

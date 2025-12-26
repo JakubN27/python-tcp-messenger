@@ -41,7 +41,7 @@ def recieve(client):
             message = client.recv(message_length).decode(FORMAT)
             if message == DISCONNECT_MESSAGE:
                 disconnected.set()
-            print("SERVER: ", message)
+            print(message)
         else:
             print("You have disconnected from the server.")
             disconnected.set()
