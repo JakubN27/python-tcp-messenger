@@ -175,6 +175,30 @@ def commands(connection, message):
                 send('SERVER: Files: ' + ', '.join(files), (connection))
         except Exception as e:
             send('SERVER: Failed to access shared folder.', (connection))
+    elif command == '!download':
+        shared_folder = os.environ.get('SERVER_SHARED_FILES', 'SharedFiles')
+        if not args or len(args) < 1:
+            send('SERVER: Usage: !download <filename>', (connection))
+        else:
+            filename = args[0]
+            filepath = os.path.join(shared_folder, filename)
+            if not os.path.isfile(filepath):
+                send('SERVER: File not found.', (connection))
+            else:
+                try:
+                    filesize = os.path.getsize(filepath)
+                    send(f'SERVER: Sending {filename} ({filesize} bytes).', (connection))
+                    with open(filepath, 'rb') as f:
+                        # Send file size first
+                        connection.send(str(filesize).encode(FORMAT).ljust(HEADER))
+                        # Send file data in chunks
+                        while True:
+                            data = f.read(1024)
+                            if not data:
+                                break
+                            connection.send(data)
+                except Exception as e:
+                    send('SERVER: Error sending file.', (connection))
     else:
         send("SERVER: invalid command", (connection))
             
