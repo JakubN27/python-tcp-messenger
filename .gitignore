@@ -1,0 +1,17 @@
+# Ignore server shared files
+SharedFiles/
+
+# Ignore all user download folders (assuming usernames are alphanumeric)
+[a-zA-Z0-9]*/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VS Code settings
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

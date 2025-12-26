@@ -1,7 +1,7 @@
 import socket
 import sys
 import threading
-
+import os
 
 HEADER = 64
 PORT = int(sys.argv[3])
@@ -34,14 +34,52 @@ def send(client):
             
 
 def recieve(client):
+    expecting_file = False
+    file_info = None
     while not disconnected.is_set():
+        # Receive header for message length
         message_length = client.recv(HEADER).decode(FORMAT)
         if message_length:
             message_length = int(message_length)
-            message = client.recv(message_length).decode(FORMAT)
-            if message == DISCONNECT_MESSAGE:
-                disconnected.set()
-            print(message)
+            if not expecting_file:
+                # Normal message handling
+                message = client.recv(message_length).decode(FORMAT)
+                # Check if server is about to send a file
+                if message.startswith('SERVER: Sending') and '(' in message and 'bytes' in message:
+                    # Parse filename and size from server message
+                    parts = message.split()
+                    filename = parts[2]
+                    size_str = message.split('(')[1].split()[0]
+                    filesize = int(size_str)
+                    print(message)
+                    expecting_file = True
+                    file_info = (filename, filesize)
+                else:
+                    # Handle disconnect message
+                    if message == DISCONNECT_MESSAGE:
+                        disconnected.set()
+                    print(message)
+            else:
+                # Directly receive file bytes, no extra header
+                username = NICKNAME
+                folder = username
+                # Create user folder if it doesn't exist
+                if not os.path.exists(folder):
+                    os.makedirs(folder)
+                filepath = os.path.join(folder, file_info[0])
+                #Write file bytes
+                with open(filepath, 'wb') as f:
+                    bytes_received = 0
+                    filesize = file_info[1]
+                    while bytes_received < filesize:
+                        chunk = client.recv(min(1024, filesize - bytes_received))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        bytes_received += len(chunk)
+                print(f'Downloaded {file_info[0]} ({filesize} bytes) to {folder}/')
+                expecting_file = False
+                file_info = None
         else:
             print("You have disconnected from the server.")
             disconnected.set()
