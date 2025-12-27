@@ -110,8 +110,7 @@ def handle_client(connection, address):
 def commands(connection, message):
     message_list = message.split()
     command = message_list[0]
-    if len(message_list) > 1:
-        args = message_list[1:]
+    args = message_list[1:] if len(message_list) > 1 else []
     #If user chooses to disconenct we return a flag
     if command == '!disconnect':
         print(f'{client_nicknames[connection]} has disconnected.')
