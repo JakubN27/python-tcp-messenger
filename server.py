@@ -93,12 +93,17 @@ def handle_client(connection, address):
                 print(nick, ": ", message, client_modes[connection])
         #If forced diconnect, we will recieve empty length
         else:
-            del nick_to_client[nick]
-            del client_nicknames[connection]
-
+            # clean up tracking dictionaries without re-referencing deleted keys
+            if nick in nick_to_client:
+                del nick_to_client[nick]
+            if connection in client_nicknames:
+                del client_nicknames[connection]
+            if connection in client_addresses:
+                del client_addresses[connection]
+            if connection in client_modes:
+                del client_modes[connection]
             connected = False
-            
-            print(f'{client_nicknames[connection]} has disconnected unexpectedly.')
+            print(f'{nick} has disconnected unexpectedly.')
 
     connection.close()
 
