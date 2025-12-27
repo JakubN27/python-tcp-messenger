@@ -57,6 +57,10 @@ def handle_client(connection, address):
     #Send welcome message to client upon connecting
     welcome_message = "SERVER: thank you for connecting!"
     send(welcome_message, (connection))
+    # Broadcast join to other clients
+    other_clients = [c for c in client_addresses if c != connection]
+    if other_clients:
+        send(f'{nick_message} has joined', *other_clients)
 
     #Default mode is broadcast
     client_modes[connection] = 'broadcast'
@@ -92,18 +96,22 @@ def handle_client(connection, address):
 
                 print(nick, ": ", message, client_modes[connection])
         #If forced diconnect, we will recieve empty length
-        else:
-            # clean up tracking dictionaries without re-referencing deleted keys
-            if nick in nick_to_client:
-                del nick_to_client[nick]
-            if connection in client_nicknames:
-                del client_nicknames[connection]
-            if connection in client_addresses:
-                del client_addresses[connection]
-            if connection in client_modes:
-                del client_modes[connection]
-            connected = False
-            print(f'{nick} has disconnected unexpectedly.')
+    else:
+        # clean up tracking dictionaries without re-referencing deleted keys
+        if nick in nick_to_client:
+            del nick_to_client[nick]
+        if connection in client_nicknames:
+            del client_nicknames[connection]
+        if connection in client_addresses:
+            del client_addresses[connection]
+        if connection in client_modes:
+            del client_modes[connection]
+        # Inform remaining clients
+        remaining = [c for c in client_addresses]
+        if remaining:
+            send(f'{nick} has left', *remaining)
+        connected = False
+        print(f'{nick} has disconnected unexpectedly.')
 
     connection.close()
 
@@ -115,6 +123,10 @@ def commands(connection, message):
     if command == '!disconnect':
         print(f'{client_nicknames[connection]} has disconnected.')
         send('SERVER: You have been disconnected.', (connection))
+        # notify others
+        others = [c for c in client_addresses if c != connection]
+        if others:
+            send(f'{client_nicknames[connection]} has left', *others)
         return -1
     #Expecting !joingroup <group>
     elif command == '!joingroup':
@@ -127,6 +139,10 @@ def commands(connection, message):
                 else:
                     groups[args[0]] = [connection]
                 send(f'SERVER: You have joined the group {args[0]}', (connection))
+                # Notify existing group members (excluding self)
+                group_members = [c for c in groups[args[0]] if c != connection]
+                if group_members:
+                    send(f'{client_nicknames[connection]} has joined group {args[0]}', *group_members)
             except:
                 send('SERVER: Failed to join group: ' + args[0], (connection))
         print(groups)
@@ -140,7 +156,13 @@ def commands(connection, message):
                 # cleanup if group is empty
                 if not groups[args[0]]:
                     del groups[args[0]]
-                send(f'SERVER: You have left the group {args[0]}', (connection))
+                    send(f'SERVER: You have left the group {args[0]}', (connection))
+                else:
+                    send(f'SERVER: You have left the group {args[0]}', (connection))
+                    # Notify remaining group members
+                    group_members = groups[args[0]]
+                    if group_members:
+                        send(f'{client_nicknames[connection]} has left group {args[0]}', *group_members)
             else:
                 send(f'SERVER: You are not part of the group {args[0]}', (connection))
         print(groups)
