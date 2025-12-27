@@ -177,11 +177,11 @@ def commands(connection, message):
             send('SERVER: Failed to access shared folder.', (connection))
     elif command == '!download':
         shared_folder = os.environ.get('SERVER_SHARED_FILES', 'SharedFiles')
-        if not args or len(args) < 1:
-            send('SERVER: Usage: !download <filename> [udp]', (connection))
+        if not args or len(args) != 2:
+            send('SERVER: Usage: !download <filename> <tcp|udp>', (connection))
         else:
             filename = args[0]
-            protocol = args[1].lower() if len(args) > 1 else 'tcp'
+            protocol = args[1].lower()
             filepath = os.path.join(shared_folder, filename)
             if not os.path.isfile(filepath):
                 send('SERVER: File not found.', (connection))
@@ -189,6 +189,10 @@ def commands(connection, message):
                 try:
                     filesize = os.path.getsize(filepath)
                     send(f'SERVER: Sending {filename} ({filesize} bytes).', (connection))
+                    # Send 64-byte header with file size before file data
+                    file_size_header = str(filesize).encode(FORMAT)
+                    file_size_header += b' ' * (HEADER - len(file_size_header))
+                    connection.send(file_size_header)
                     with open(filepath, 'rb') as f:
                         # Send file data in chunks
                         bytes_sent = 0
@@ -198,6 +202,7 @@ def commands(connection, message):
                                 break
                             connection.send(data)
                             bytes_sent += len(data)
+                    send(f'SERVER: File transfer complete for {filename} ({filesize} bytes) via TCP.', (connection))
                 except Exception as e:
                     send('SERVER: Error sending file.', (connection))
             elif protocol == 'udp':
@@ -208,16 +213,24 @@ def commands(connection, message):
                     udp_sock.bind(('', 0)) # Bind to any free port
                     udp_port = udp_sock.getsockname()[1]
                     send(f'SERVER: UDPPORT {udp_port} {filename} {filesize}', (connection))
-                    client_ip, _ = client_addresses[connection]
+                    udp_sock.settimeout(5)
+                    try:
+                        # Wait for client to signal readiness; use that address for replies
+                        _, client_addr = udp_sock.recvfrom(1024)
+                    except socket.timeout:
+                        send('SERVER: UDP download timed out waiting for client.', (connection))
+                        udp_sock.close()
+                        return
                     with open(filepath, 'rb') as f:
                         bytes_sent = 0
                         while True:
                             data = f.read(1024)
                             if not data:
                                 break
-                            udp_sock.sendto(data, (client_ip, udp_port))
+                            udp_sock.sendto(data, client_addr)
                             bytes_sent += len(data)
                     udp_sock.close()
+                    send(f'SERVER: File transfer complete for {filename} ({filesize} bytes) via UDP.', (connection))
                 except Exception as e:
                     send('SERVER: Error sending file via UDP.', (connection))
             else:
