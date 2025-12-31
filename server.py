@@ -2,6 +2,10 @@ import socket
 import threading
 import sys
 import os
+
+if len(sys.argv) != 2:
+    print("Usage: python server.py <port>")
+    sys.exit(1)
 #Using threading since we are handling multiple clients
 
 
@@ -19,9 +23,9 @@ DISCONNECT_MESSAGE = "!DISCONNECT"
 client_addresses = {}
 #Client : nickname
 client_nicknames = {}
-# nickanme : client
+# nickname : client
 nick_to_client = {}
-#groupname : [client1, clien2, ...]
+#groupname : [client1, client2, ...]
 groups = {}
 #Client : messaging mode
 client_modes = {}
@@ -40,14 +44,23 @@ print('server listening')
 
 
 
-#Rund concurrently for each client
+#Run concurrently for each client
 def handle_client(connection, address):
+    nick_message = ''
+    announce_disconnect = True
     # Set client nickname before entering loop
-    nick_message_length = connection.recv(HEADER).decode(FORMAT)
+    nick_message_length_raw = connection.recv(HEADER)
+    if not nick_message_length_raw:
+        connection.close()
+        return
+    try:
+        nick_message_length = int(nick_message_length_raw.decode(FORMAT).strip())
+    except ValueError:
+        connection.close()
+        return
     if nick_message_length:
-        nick_message_length = int(nick_message_length)
         nick_message = connection.recv(nick_message_length).decode(FORMAT)
-        print(f'{nick_message} has joined the room!')
+        print(f'{nick_message} has joined the room from {address}!')
 
     #Update dictionaries
     client_addresses[connection] = address
@@ -65,61 +78,77 @@ def handle_client(connection, address):
     #Default mode is broadcast
     client_modes[connection] = 'broadcast'
 
-    #Listen for messages fro client
+    #Listen for messages from client
     connected = True
     while connected:
-        nick = client_nicknames[connection]
-        message_length = connection.recv(HEADER).decode(FORMAT)
-        if message_length:
-            message_length = int(message_length)
-            message = connection.recv(message_length).decode(FORMAT)
-            if message.startswith('!'):
-                code = commands(connection, message)
-                #If disconnect flag raised
-                if code == -1:
-                    connected = False
-            else:
-                #Server resends client message to target depending on mode
-                if client_modes[connection] == 'broadcast':
-                    print(client_addresses.values())
-                    targets = [c for c in client_addresses if c != connection]
-                    send(f'{nick}: {message}', *targets)
-                elif client_modes[connection][0] == 'group':
-                    group_name = client_modes[connection][1]
-                    targets = [c for c in groups[group_name] if c != connection]
-                    send(f'{nick}: {message}', *targets)
-                elif client_modes[connection][0] == 'whisper':
-                    target_client = nick_to_client[client_modes[connection][1]]
-                    if target_client != connection:
-                        send(f'{nick}: {message}', (target_client))
+        nick = client_nicknames.get(connection, '')
+        message_length_raw = connection.recv(HEADER)
+        if not message_length_raw:
+            connected = False
+            break
+        try:
+            message_length = int(message_length_raw.decode(FORMAT).strip())
+        except ValueError:
+            continue
+        if message_length == 0:
+            connected = False
+            break
+        message = connection.recv(message_length).decode(FORMAT)
+        if message.startswith('!'):
+            code = commands(connection, message)
+            #If disconnect flag raised
+            if code == -1:
+                connected = False
+                announce_disconnect = False
+        else:
+            #Server resends client message to target depending on mode
+            mode = client_modes[connection]
+            if mode == 'broadcast':
+                print(client_addresses.values())
+                targets = [c for c in client_addresses if c != connection]
+                send(f'{nick}: {message}', *targets)
+            elif mode[0] == 'group':
+                group_name = mode[1]
+                targets = [c for c in groups[group_name] if c != connection]
+                send(f'[group {group_name}] {nick}: {message}', *targets)
+            elif mode[0] == 'whisper':
+                target_client = nick_to_client[mode[1]]
+                if target_client != connection:
+                    send(f'[whisper {mode[1]}] {nick}: {message}', (target_client))
 
 
-                print(nick, ": ", message, client_modes[connection])
-        #If forced diconnect, we will recieve empty length
-    else:
-        # clean up tracking dictionaries without re-referencing deleted keys
-        if nick in nick_to_client:
-            del nick_to_client[nick]
-        if connection in client_nicknames:
-            del client_nicknames[connection]
-        if connection in client_addresses:
-            del client_addresses[connection]
-        if connection in client_modes:
-            del client_modes[connection]
-        # Inform remaining clients
-        remaining = [c for c in client_addresses]
-        if remaining:
-            send(f'{nick} has left', *remaining)
-        connected = False
-        print(f'{nick} has disconnected unexpectedly.')
+            print(nick, ": ", message, client_modes[connection])
+    cleanup_client(connection, nick_message, announce_disconnect)
 
+
+def cleanup_client(connection, nick, announce=True):
+    # clean up tracking dictionaries without re-referencing deleted keys
+    if nick in nick_to_client:
+        del nick_to_client[nick]
+    if connection in client_nicknames:
+        del client_nicknames[connection]
+    if connection in client_addresses:
+        del client_addresses[connection]
+    if connection in client_modes:
+        del client_modes[connection]
+    for group_name, members in list(groups.items()):
+        if connection in members:
+            members.remove(connection)
+            if not members:
+                del groups[group_name]
+    # Inform remaining clients
+    remaining = [c for c in client_addresses]
+    if remaining and nick and announce:
+        send(f'{nick} has left', *remaining)
+    status = 'unexpectedly' if announce else 'gracefully'
+    print(f'{nick} has disconnected {status}.')
     connection.close()
 
 def commands(connection, message):
     message_list = message.split()
     command = message_list[0]
     args = message_list[1:] if len(message_list) > 1 else []
-    #If user chooses to disconenct we return a flag
+    #If user chooses to disconnect we return a flag
     if command == '!disconnect':
         print(f'{client_nicknames[connection]} has disconnected.')
         send('SERVER: You have been disconnected.', (connection))
@@ -130,41 +159,43 @@ def commands(connection, message):
         return -1
     #Expecting !joingroup <group>
     elif command == '!joingroup':
-        if args and len(args) != 1:
-            send(f'SERVER: Wrong number of arguments for {command}, expecting 1', (connection))
+        if len(args) != 1:
+            send('SERVER: Usage: !joingroup <group>', (connection))
         else:
+            group_name = args[0]
             try:
-                if args[0] in groups:
-                    groups[args[0]].append(connection)
+                if group_name in groups:
+                    groups[group_name].append(connection)
                 else:
-                    groups[args[0]] = [connection]
-                send(f'SERVER: You have joined the group {args[0]}', (connection))
+                    groups[group_name] = [connection]
+                send(f'SERVER: You have joined the group {group_name}', (connection))
                 # Notify existing group members (excluding self)
-                group_members = [c for c in groups[args[0]] if c != connection]
+                group_members = [c for c in groups[group_name] if c != connection]
                 if group_members:
-                    send(f'{client_nicknames[connection]} has joined group {args[0]}', *group_members)
-            except:
-                send('SERVER: Failed to join group: ' + args[0], (connection))
+                    send(f'{client_nicknames[connection]} has joined group {group_name}', *group_members)
+            except Exception:
+                send('SERVER: Failed to join group: ' + group_name, (connection))
         print(groups)
     #Expecting !leavegroup <group>
     elif command == '!leavegroup':
-        if args and len(args) != 1:
-            send(f'SERVER: Wrong number of arguments for {command}, expecting 1', (connection))
+        if len(args) != 1:
+            send('SERVER: Usage: !leavegroup <group>', (connection))
         else:
-            if args[0] in groups:
-                groups[args[0]].remove(connection)
+            group_name = args[0]
+            if group_name in groups and connection in groups[group_name]:
+                groups[group_name].remove(connection)
                 # cleanup if group is empty
-                if not groups[args[0]]:
-                    del groups[args[0]]
-                    send(f'SERVER: You have left the group {args[0]}', (connection))
+                if not groups[group_name]:
+                    del groups[group_name]
+                    send(f'SERVER: You have left the group {group_name}', (connection))
                 else:
-                    send(f'SERVER: You have left the group {args[0]}', (connection))
+                    send(f'SERVER: You have left the group {group_name}', (connection))
                     # Notify remaining group members
-                    group_members = groups[args[0]]
+                    group_members = groups[group_name]
                     if group_members:
-                        send(f'{client_nicknames[connection]} has left group {args[0]}', *group_members)
+                        send(f'{client_nicknames[connection]} has left group {group_name}', *group_members)
             else:
-                send(f'SERVER: You are not part of the group {args[0]}', (connection))
+                send(f'SERVER: You are not part of the group {group_name}', (connection))
         print(groups)
     #Expecting !switchmode <mode>
     elif command == '!switchmode':
@@ -190,7 +221,7 @@ def commands(connection, message):
         else:
             send(f'SERVER: Wrong usage of {command}', (connection))
     elif command == '!sharedfiles':
-        shared_folder = os.environ.get('SERVER_SHARED_FILES', 'SharedFiles')
+        shared_folder = 'SharedFiles'
         try:
             files = os.listdir(shared_folder)
             file_count = len(files)
@@ -202,7 +233,7 @@ def commands(connection, message):
         except Exception as e:
             send('SERVER: Failed to access shared folder.', (connection))
     elif command == '!download':
-        shared_folder = os.environ.get('SERVER_SHARED_FILES', 'SharedFiles')
+        shared_folder = 'SharedFiles'
         if not args or len(args) != 2:
             send('SERVER: Usage: !download <filename> <tcp|udp>', (connection))
         else:
@@ -268,8 +299,8 @@ def send(message, *targets):
     message = message.encode(FORMAT)
     # get message length for header
     message_length = len(message)
-    send_length = str(message_length).encode(FORMAT)
     for target in targets:
+        send_length = str(message_length).encode(FORMAT)
         #pad to fit 64 byte header
         send_length += b' ' * (HEADER - len(send_length))
         target.send(send_length)

@@ -3,6 +3,10 @@ import sys
 import threading
 import os
 
+if len(sys.argv) != 4:
+    print("Usage: python client.py <username> <hostname> <port>")
+    sys.exit(1)
+
 HEADER = 64
 PORT = int(sys.argv[3])
 HOSTNAME = sys.argv[2]
@@ -144,7 +148,6 @@ client.send(message)
 
 send_thread = threading.Thread(target=send, args = (client,))
 send_thread.start()
-
 
 
 
